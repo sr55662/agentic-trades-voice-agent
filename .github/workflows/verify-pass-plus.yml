@@ -1,0 +1,142 @@
+name: Verify PASS-PLUS contents
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Verify repo matches manifest (ignoring CRLF/LF for text files)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MANIFEST=".verification/pass_plus_zip_manifest.json"
+          if [[ ! -f "$MANIFEST" ]]; then
+            echo "Manifest not found at $MANIFEST"
+            exit 1
+          fi
+
+          # File extensions to treat as text (normalize CRLF->LF)
+          TEXT_EXT=".ts .tsx .js .jsx .json .md .sql .yml .yaml .tf .tfvars .cjs .mjs .css .scss .html .mdx .ps1 .sh .bat .env .txt .xml"
+
+          is_text() {
+            local f="$1"; local ext="${f##*.}"
+            [[ " $TEXT_EXT " == *" .${ext} "* ]]
+          }
+
+          sha256_norm() {
+            local f="$1"
+            if is_text "$f"; then
+              # Normalize CRLF to LF, then hash
+              sed 's/\r$//' "$f" | sha256sum | awk '{print $1}'
+            else
+              sha256sum "$f" | awk '{print $1}'
+            fi
+          }
+
+          # Ignore patterns (paths containing any of these are skipped)
+          IGNORE_PATTERNS=(
+            "/.git/" "/node_modules/" "/dist/" "/build/" "/.next/" "/.expo/" "/.DS_Store"
+          )
+          should_ignore() {
+            local p="$1"
+            for i in "${IGNORE_PATTERNS[@]}"; do
+              [[ "$p" == *"$i"* ]] && return 0
+            done
+            return 1
+          }
+
+          # Build a set of repo files (relative paths, unix slashes)
+          mapfile -t REPO_FILES < <(git ls-files)
+
+          # Prepare results
+          MISSING_IN_REPO=()
+          EXTRA_IN_REPO=()
+          SIZE_MISMATCH=()
+          CONTENT_MISMATCH=()
+
+          # Manifest -> Repo comparison
+          COUNT=$(jq 'length' "$MANIFEST")
+          for ((i=0; i<COUNT; i++)); do
+            P=$(jq -r ".[$i].path" "$MANIFEST")
+            S=$(jq -r ".[$i].size_bytes" "$MANIFEST")
+            H=$(jq -r ".[$i].sha256" "$MANIFEST")
+
+            if should_ignore "$P"; then
+              continue
+            fi
+
+            if [[ ! -f "$P" ]]; then
+              MISSING_IN_REPO+=("$P")
+              continue
+            fi
+
+            # size check
+            RS=$(stat -c%s "$P")
+            if [[ "$RS" != "$S" ]]; then
+              SIZE_MISMATCH+=("$P|repo:$RS|manifest:$S")
+              # still do a content check to be explicit
+            fi
+
+            RH=$(sha256_norm "$P")
+            if [[ "$RH" != "$H" ]]; then
+              CONTENT_MISMATCH+=("$P|repo:$RH|manifest:$H")
+            fi
+          done
+
+          # Repo -> Manifest (extras)
+          # Build a set of manifest paths
+          mapfile -t MANIFEST_PATHS < <(jq -r '.[].path' "$MANIFEST")
+          # quick membership test via awk hash
+          MP_SET=$(printf "%s\n" "${MANIFEST_PATHS[@]}" | awk '{print $0}' | sort | uniq)
+          for RF in "${REPO_FILES[@]}"; do
+            # skip ignored
+            if should_ignore "$RF"; then
+              continue
+            fi
+            # is in manifest?
+            if ! grep -Fxq "$RF" <<< "$MP_SET"; then
+              EXTRA_IN_REPO+=("$RF")
+            fi
+          done
+
+          # Summarize
+          echo "== SUMMARY ==" | tee -a $GITHUB_STEP_SUMMARY
+          echo "MissingInRepo:   ${#MISSING_IN_REPO[@]}" | tee -a $GITHUB_STEP_SUMMARY
+          echo "ExtraInRepo:     ${#EXTRA_IN_REPO[@]}" | tee -a $GITHUB_STEP_SUMMARY
+          echo "SizeMismatch:    ${#SIZE_MISMATCH[@]}" | tee -a $GITHUB_STEP_SUMMARY
+          echo "ContentMismatch: ${#CONTENT_MISMATCH[@]}" | tee -a $GITHUB_STEP_SUMMARY
+          echo "" | tee -a $GITHUB_STEP_SUMMARY
+
+          if (( ${#MISSING_IN_REPO[@]} )); then
+            printf "### Missing In Repo\n\`\`\`\n%s\n\`\`\`\n" "$(printf "%s\n" "${MISSING_IN_REPO[@]}")" >> $GITHUB_STEP_SUMMARY
+          fi
+          if (( ${#EXTRA_IN_REPO[@]} )); then
+            printf "### Extra In Repo\n\`\`\`\n%s\n\`\`\`\n" "$(printf "%s\n" "${EXTRA_IN_REPO[@]}")" >> $GITHUB_STEP_SUMMARY
+          fi
+          if (( ${#SIZE_MISMATCH[@]} )); then
+            printf "### Size Mismatch\n\`\`\`\n%s\n\`\`\`\n" "$(printf "%s\n" "${SIZE_MISMATCH[@]}")" >> $GITHUB_STEP_SUMMARY
+          fi
+          if (( ${#CONTENT_MISMATCH[@]} )); then
+            printf "### Content Mismatch\n\`\`\`\n%s\n\`\`\`\n" "$(printf "%s\n" "${CONTENT_MISMATCH[@]}")" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Fail if any differences
+          if (( ${#MISSING_IN_REPO[@]} || ${#EXTRA_IN_REPO[@]} || ${#SIZE_MISMATCH[@]} || ${#CONTENT_MISMATCH[@]} )); then
+            echo "Differences detected; failing job."
+            exit 1
+          else
+            echo "Repo matches PASS-PLUS manifest."
+          fi
