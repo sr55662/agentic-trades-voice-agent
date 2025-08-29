@@ -20,6 +20,7 @@ import { pool } from '../lib/db';
 import { AppError } from '../lib/errors';
 import { createSessionForTwilio, setRetention } from '../llm/agent';
 import { isValidTwilioSignature } from '../lib/twilio';
+import { escalateToHuman } from '../services/hitl';
 
 export default async function voice(app: FastifyInstance) {
   app.register(fastifyFormBody);
