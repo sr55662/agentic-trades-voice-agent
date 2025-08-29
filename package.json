@@ -13,7 +13,8 @@
     "seed": "node dist/scripts/seed.js",
     "lint:fix": "eslint . --ext .ts --fix",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "purge:holds": "node scripts/purge_holds.ts"
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch": "^3.637.0",
@@ -33,7 +34,8 @@
     "@openai/agents-extensions": "^0.1.0",
     "@opentelemetry/api": "^1.8.0",
     "@opentelemetry/sdk-metrics": "^1.8.0",
-    "@aws-sdk/client-secrets-manager": "^3.645.0"
+    "@aws-sdk/client-secrets-manager": "^3.645.0",
+    "@fastify/websocket": "^8"
   },
   "devDependencies": {
     "@types/node": "^22.5.4",
