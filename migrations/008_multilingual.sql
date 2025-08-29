@@ -1,0 +1,3 @@
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS preferred_language TEXT DEFAULT 'en';
+ALTER TABLE bookings  ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'en';
+ALTER TABLE calls      ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'en';
