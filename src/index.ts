@@ -10,6 +10,8 @@ import rateLimit from '@fastify/rate-limit';
 import rawBody from 'fastify-raw-body';
 import { env } from './lib/config';
 import { pool } from './lib/db';
+import smsRoutes from './routes/sms';
+
 
 import health from './routes/health';
 import voice from './routes/voice';
@@ -27,6 +29,8 @@ await app.register(health);
 await app.register(voice);
 await app.register(payments);
 await app.register(api);
+await app.register(smsRoutes,{ prefix:'/sms' });
+
 
 const port = Number(env.PORT || 5050);
 app.listen({ port, host: '0.0.0.0' }).then(() => {
