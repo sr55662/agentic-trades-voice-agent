@@ -1,0 +1,31 @@
+{
+  "family": "REPLACED_BY_PIPELINE",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "REPLACED_BY_TF",
+  "taskRoleArn": "REPLACED_BY_TF",
+  "containerDefinitions": [
+    {
+      "name": "app",
+      "image": "REPLACED_BY_PIPELINE",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 5050, "hostPort": 5050, "protocol": "tcp" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/agentic",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "environment": [
+        { "name": "PORT", "value": "5050" },
+        { "name": "NODE_ENV", "value": "production" }
+      ]
+    }
+  ]
+}
