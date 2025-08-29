@@ -1,42 +1,30 @@
-# Monitoring: example CloudWatch alarms (tune thresholds & dimensions)
-variable "pager_sns_arn" { type = string }
-variable "alb_name" { type = string }
-variable "target_group_name" { type = string }
+variable "alarm_topic_arn" { type = string }
 
-resource "aws_cloudwatch_metric_alarm" "alb_p95_latency" {
-  alarm_name          = "alb-p95-latency-gt-1s"
+resource "aws_cloudwatch_metric_alarm" "api_5xx_high" {
+  alarm_name          = "agentic-api-5xx-rate-high"
   comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 3
-  threshold           = 1
-  metric_name         = "TargetResponseTime"
+  evaluation_periods  = 1
+  threshold           = 2
+  metric_name         = "HTTPCode_ELB_5XX_Count"
   namespace           = "AWS/ApplicationELB"
-  period              = 60
-  statistic           = "p95"
-  dimensions = { LoadBalancer = var.alb_name }
-  alarm_actions = [var.pager_sns_arn]
-}
-
-resource "aws_cloudwatch_metric_alarm" "ecs_5xx" {
-  alarm_name          = "ecs-5xx-gt-5-per-min"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 2
-  threshold           = 5
-  metric_name         = "HTTPCode_Target_5XX_Count"
-  namespace           = "AWS/ApplicationELB"
-  period              = 60
   statistic           = "Sum"
-  dimensions = { TargetGroup = var.target_group_name }
-  alarm_actions = [var.pager_sns_arn]
+  period              = 300
+  alarm_description   = "ALB 5xx spikes"
+  dimensions = {
+    LoadBalancer = aws_lb.app.arn_suffix
+  }
+  alarm_actions = [var.alarm_topic_arn]
 }
 
-resource "aws_cloudwatch_metric_alarm" "booking_drop" {
-  alarm_name          = "bookings-created-drop"
+resource "aws_cloudwatch_metric_alarm" "bookings_drop" {
+  alarm_name          = "agentic-bookings-drop"
   comparison_operator = "LessThanThreshold"
-  evaluation_periods  = 5
+  evaluation_periods  = 1
   threshold           = 1
   metric_name         = "bookings_created"
   namespace           = "Agentic/Voice"
-  period              = 300
   statistic           = "Sum"
-  alarm_actions       = [var.pager_sns_arn]
+  period              = 3600
+  alarm_description   = "Bookings created < 1 in the last hour"
+  alarm_actions       = [var.alarm_topic_arn]
 }
