@@ -37,6 +37,8 @@ METRICS_EXPORTER=cloudwatch # or 'none'|'prometheus'
 RETENTION_DAYS=180
 BARGE_IN_MS=200
 MAX_SILENCE_MS=6000
+OPERATOR_PHONE=+15551234567
+DEFAULT_LANGUAGE=en
 
 # AES-256-GCM key (32B base64). Prefer storing in AWS Secrets Manager.
 PII_KEY=
