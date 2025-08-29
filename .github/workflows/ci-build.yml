@@ -1,0 +1,118 @@
+name: CI - Build & Test
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API (TypeScript) build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install root deps
+        run: npm ci
+
+      - name: Unit tests (root)
+        run: npm run test --if-present
+
+      - name: Build API
+        run: npm run build
+
+      - name: Upload API dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-dist
+          path: |
+            dist/**
+            package.json
+            package-lock.json
+            Dockerfile
+          if-no-files-found: error
+
+  admin:
+    name: Admin build (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: admin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Typecheck (optional)
+        run: npm run typecheck --if-present
+
+      - name: Build (Next.js)
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          # Supply any required public envs here if your build needs them, or remove if not needed
+        run: npm run build --if-present
+
+      - name: Upload Admin build
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-build
+          path: |
+            admin/.next/**
+            admin/package.json
+            admin/package-lock.json
+          if-no-files-found: warn
+
+  mobile:
+    name: Mobile typecheck (Expo/React Native)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Typecheck / Lint (best-effort)
+        run: |
+          npm run typecheck --if-present || true
+          npm run lint --if-present || true
