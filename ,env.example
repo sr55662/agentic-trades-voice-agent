@@ -1,0 +1,44 @@
+# --- Core ---
+NODE_ENV=development
+PORT=5050
+APP_URL=http://localhost:5050
+OPENAI_API_KEY=sk-***
+DATABASE_URL=postgres://postgres:postgres@db:5432/agentic?sslmode=disable
+
+# --- Twilio ---
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_PHONE_NUMBER=+12345550123
+TWILIO_VALIDATE_SIGNATURE=true
+
+# --- Stripe ---
+STRIPE_SECRET_KEY=sk_live_***
+STRIPE_WEBHOOK_SECRET=whsec_***
+STRIPE_PRICE_DEPOSIT=price_***
+STRIPE_SUCCESS_URL=http://localhost:5050/pay/success?session_id={CHECKOUT_SESSION_ID}
+STRIPE_CANCEL_URL=http://localhost:5050/pay/canceled
+
+# --- AWS CloudWatch (optional; if running on AWS with role, leave blank) ---
+AWS_REGION=us-east-1
+
+# --- Google Calendar (optional) ---
+GOOGLE_PROJECT_ID=your-project
+GOOGLE_CALENDAR_ID=primary
+GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/gcp.json
+
+# --- Security ---
+RATE_LIMIT_MAX=100
+RATE_LIMIT_TIME_WINDOW=60000
+# --- Added for cost/perf & ops controls ---
+MODEL_TIER=realtime-small   # realtime-nano|realtime-small|realtime-med|realtime-large
+STT_MODE=streaming          # streaming|batch
+TTS_TIER=premium            # premium|standard
+METRICS_EXPORTER=cloudwatch # or 'none'|'prometheus'
+RETENTION_DAYS=180
+BARGE_IN_MS=200
+MAX_SILENCE_MS=6000
+
+# AES-256-GCM key (32B base64). Prefer storing in AWS Secrets Manager.
+PII_KEY=
+
+EXPERIMENT_VARIANT=control
