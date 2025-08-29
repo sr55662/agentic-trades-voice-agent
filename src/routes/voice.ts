@@ -4,7 +4,7 @@
  *  - GET  /media   : WebSocket endpoint Twilio connects to; we spin up an OpenAI Realtime session and stream audio
  *
  * Security:
- *  - Optional Twilio signature validation (X-Twilio-Signature)
+ *  - Enforce Twilio signature validation (X-Twilio-Signature). In development you can bypass with env toggle.
  *  - We do minimal work in the webhook; heavy work is in the WS endpoint
  *
  * Observability:
@@ -19,18 +19,22 @@ import { env } from '../lib/config';
 import { pool } from '../lib/db';
 import { AppError } from '../lib/errors';
 import { createSessionForTwilio, setRetention } from '../llm/agent';
-import { isValidTwilioSignature } from '../lib/twilio';
 import { escalateToHuman } from '../services/hitl';
 
 export default async function voice(app: FastifyInstance) {
   app.register(fastifyFormBody);
 
+  /**
+   * Validate Twilio webhook signature.
+   * Fail-closed in non-development. In development, you may bypass unless TWILIO_VALIDATE_SIGNATURE=true.
+   */
   function validateTwilio(req: any): boolean {
-    if (env.TWILIO_VALIDATE_SIGNATURE !== 'true') return true;
     const signature = req.headers['x-twilio-signature'];
-    const url = `${req.protocol}://${req.headers.host}${req.raw.url.split('?')[0]}`;
+    const url = `${req.protocol}://${req.headers.host}${(req.raw.url || '').split('?')[0]}`;
     try {
-      return twilioClient.validateRequest(env.TWILIO_AUTH_TOKEN, signature, url, req.body || {});
+      const valid = twilioClient.validateRequest(env.TWILIO_AUTH_TOKEN, signature, url, req.body || {});
+      if (process.env.NODE_ENV !== 'development') return !!valid; // enforce in prod/stage
+      return env.TWILIO_VALIDATE_SIGNATURE === 'true' ? !!valid : true; // dev: allow bypass unless explicitly required
     } catch {
       return false;
     }
@@ -40,9 +44,10 @@ export default async function voice(app: FastifyInstance) {
    * Twilio voice webhook -> return TwiML to start media stream
    */
   app.all('/incoming', async (req, reply) => {
-    if (!validateTwilio(req)) return reply.code(403).send('Forbidden');
+    if (!validateTwilio(req)) throw new AppError('InvalidSignature', 'Twilio signature invalid', 403);
+
     const hour = new Date().getHours();
-    const isAfterHours = (hour < 8 || hour > 18);
+    const isAfterHours = hour < 8 || hour > 18;
     const wsUrl = `wss://${req.headers.host}/media?after_hours=${isAfterHours}`;
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -63,7 +68,7 @@ export default async function voice(app: FastifyInstance) {
    * - update call outcome on close
    */
   app.get('/media', { websocket: true }, async (connection, req) => {
-    const params = new URLSearchParams((req as any).url.split('?')[1] || '');
+    const params = new URLSearchParams(((req as any).url || '').split('?')[1] || '');
     const isAfterHours = params.get('after_hours') === 'true';
     const callSid = params.get('CallSid') || `call_${Date.now()}`;
 
@@ -94,23 +99,51 @@ export default async function voice(app: FastifyInstance) {
             event.transcript || null,
             event.latency_ms || null,
             event.tool_calls ? JSON.stringify(event.tool_calls) : null,
-            event.error ? false : true
+            event.error ? false : true,
           ]
         );
-      } catch (e) {
+      } catch {
         // don't crash the call for analytics failures
       }
     });
 
-    session.on('error', async (err: any) => {
-      await pool.query('UPDATE calls SET outcome=$2 WHERE call_sid=$1', [callSid, 'escalated']).catch(()=>{});
+    session.on('error', async () => {
+      await pool
+        .query('UPDATE calls SET outcome=$2 WHERE call_sid=$1', [callSid, 'escalated'])
+        .catch(() => {});
     });
 
     connection.socket.on('close', async () => {
-      await pool.query('UPDATE calls SET ended_at=now(), outcome=$2 WHERE call_sid=$1 AND ended_at IS NULL', [callSid, 'completed']).catch(()=>{});
+      await pool
+        .query('UPDATE calls SET ended_at=now(), outcome=$2 WHERE call_sid=$1 AND ended_at IS NULL', [
+          callSid,
+          'completed',
+        ])
+        .catch(() => {});
     });
   });
+
+  /**
+   * Initiate human-in-the-loop escalation (HITL) for a call.
+   * Body: { callSid: string, reason?: string }
+   * Returns 202 on accepted handoff.
+   */
+  app.post('/escalate', async (req, reply) => {
+    const { callSid, reason } = (req as any).body || {};
+    if (!callSid) throw new AppError('BadRequest', 'callSid required', 400);
+    await escalateToHuman(app.log, { callSid, reason });
+    reply.code(202).send({ status: 'handoff_initiated' });
+  });
+
+  /**
+   * Optional: provider callback to confirm/annotate escalation outcome.
+   * Can be extended to mark calls.outcome='transfer' or similar.
+   */
+  app.post('/escalation/callback', async (_req, reply) => {
+    reply.code(204).send();
+  });
 }
-// TODO: Ensure Twilio signature validation is enforced in /incoming route (fail-closed when not dev)
+
+// Signature enforcement now handled by validateTwilio()
 
 // Example: trackMetric('voice_incoming', { route: 'incoming' });
